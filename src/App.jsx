@@ -1,9 +1,10 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'; // <-- BrowserRouter geri geldi!
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './Login'; 
 import Dashboard from './Dashboard'; 
 import Personel from './Personel';
 import Muhasebe from './Muhasebe';
+import Planlama from './Planlama';
 
 const ProtectedRoute = ({ children }) => {
     const token = localStorage.getItem('token');
@@ -17,8 +18,10 @@ function App() {
     return (
         <BrowserRouter>
             <Routes>
+                {/* Giriş Sayfası */}
                 <Route path="/login" element={<Login />} />
                 
+                {/* Panel ve Modüller (Hepsi Korumalı) */}
                 <Route 
                     path="/dashboard" 
                     element = {
@@ -46,6 +49,16 @@ function App() {
                     } 
                 />
 
+                <Route 
+                    path="/planlama" 
+                    element = {
+                        <ProtectedRoute>
+                            <Planlama />
+                        </ProtectedRoute>
+                    } 
+                />
+
+                {/* Yönlendirme Kuralları */}
                 <Route path="/" element={<Navigate to="/dashboard" replace />} />
                 <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>

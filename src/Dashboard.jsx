@@ -1,14 +1,33 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+// Önce terminalde şunu çalıştırın: npm install jwt-decode
+import { jwtDecode } from 'jwt-decode'; 
 
 const Dashboard = () => {
     const navigate = useNavigate();
     const token = localStorage.getItem('token');
+    const [companyName, setCompanyName] = useState('Şirket'); // Varsayılan değer
 
     useEffect(() => {
         if (!token) {
             navigate('/login');
             return;
+        }
+
+        try {
+            // Token'ı çözüyoruz
+            const decoded = jwtDecode(token);
+            
+            // Django'da JWT payload'una şirket adını ne isimle gönderdiyseniz onu yakalayın
+            // Genelde 'tenant_name', 'company_name' veya 'tenant' olur. 
+            // Eğer doğrudan user bilgisi geliyorsa 'decoded.user?.tenant' şeklinde de olabilir.
+            const sirketAdi = decoded.tenant_name || decoded.company || decoded.tenant || 'Şirket';
+            
+            setCompanyName(sirketAdi);
+        } catch (error) {
+            console.error("Token çözümlenirken hata oluştu:", error);
+            // Token bozuksa güvenli çıkış yaptırabiliriz
+            // handleLogout(); 
         }
     }, [token, navigate]);
 
@@ -21,7 +40,8 @@ const Dashboard = () => {
         <div style={styles.container}>
             <div style={styles.header}>
                 <div>
-                    <h1>🏢 Şirket Yönetim Paneli</h1>
+                    {/* Şirket adı artık tamamen dinamik! */}
+                    <h1>🏢 {companyName} Yönetim Paneli</h1>
                     <p>Tüm modüller aktif.</p>
                 </div>
                 <button onClick={handleLogout} style={styles.logoutBtn}>Çıkış Yap</button>
@@ -38,7 +58,7 @@ const Dashboard = () => {
                 {/* 💰 Muhasebe Modülü */}
                 <div style={styles.card}>
                     <h3>💰 Muhasebe & Maaş</h3>
-                    <p>Maaş bordroları, harcamalar ve finansal raporlar.</p>
+                    <p>Maaş bordroları, harcemeler ve finansal raporlar.</p>
                     <button onClick={() => navigate('/muhasebe')} style={styles.activeBtn}>Finansa Git →</button>
                 </div>
 
