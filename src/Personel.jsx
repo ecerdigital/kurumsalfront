@@ -7,18 +7,12 @@ const Personel = () => {
     const token = localStorage.getItem('token');
 
     const [employees, setEmployees] = useState([]);
+    const [roles, setRoles] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [hasAccess, setHasAccess] = useState(true);
-
-    const sirketDepartmanlari = [
-    { id: 'muhasebe', label: 'Muhasebe' },
-    { id: 'muhasebe_muduru', label: 'Muhasebe Müdürü' },
-    { id: 'planlama', label: 'Planlama' },
-    { id: 'yonetici', label: 'Şirket Yöneticisi' }
-];
+    const [userPermissions, setUserPermissions] = useState([]);
 
     const [formData, setFormData] = useState({
-        first_name: '', last_name: '', email: '', position: ''
+        first_name: '', last_name: '', email: '', position: '', role_id: ''
     });
     const [displaySalary, setDisplaySalary] = useState('');
     const [displayPhone, setDisplayPhone] = useState('');
@@ -26,6 +20,18 @@ const Personel = () => {
     const [editingId, setEditingId] = useState(null);
     const [showForm, setShowForm] = useState(false);
     const [formError, setFormError] = useState('');
+    
+    // Rol atama modalı
+    const [showRoleModal, setShowRoleModal] = useState(false);
+    const [selectedEmployee, setSelectedEmployee] = useState(null);
+    const [selectedRoleId, setSelectedRoleId] = useState('');
+
+    const sirketDepartmanlari = [
+        { id: 'muhasebe', label: 'Muhasebe' },
+        { id: 'muhasebe_muduru', label: 'Muhasebe Müdürü' },
+        { id: 'planlama', label: 'Planlama' },
+        { id: 'yonetici', label: 'Şirket Yöneticisi' }
+    ];
 
     const formatPhoneInput = (value) => {
         const numbers = value.replace(/[^\d]/g, '');
@@ -37,23 +43,31 @@ const Personel = () => {
         return `0 (${numbers.slice(1, 4)}) ${numbers.slice(4, 7)} ${numbers.slice(7, 9)} ${numbers.slice(9, 11)}`;
     };
 
-    // 💰 MAAŞ MASKESİ: Virgülden sonrasını tamamen yok sayar
     const formatSalaryInput = (value) => {
         if (!value) return '';
-        
-        // 1. Gelen değerin string olup olmadığını kontrol et
         let valStr = value.toString();
-        
-        // 2. Eğer içinde nokta varsa, noktadan sonrasını tamamen kes (ondalık kısımları at)
         if (valStr.includes('.')) {
             valStr = valStr.split('.')[0];
         }
-        
-        // 3. Artık elimizde sadece tam sayı kısmı var, bunu temizle ve formatla
         const cleanNumber = valStr.replace(/[^\d]/g, '');
         return cleanNumber.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
     };
 
+    // 🔐 Kullanıcının izinlerini getir
+    const fetchUserPermissions = () => {
+        axios.get('http://localhost:8000/api/personel/my-permissions/', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        })
+        .then(res => {
+            setUserPermissions(res.data.permissions || []);
+        })
+        .catch(err => {
+            console.error('İzin bilgileri alınamadı:', err);
+            setUserPermissions([]);
+        });
+    };
+
+    // Personel listesini getir
     const fetchEmployees = () => {
         axios.get('http://localhost:8000/api/personel/', {
             headers: { 'Authorization': `Bearer ${token}` }
@@ -64,26 +78,51 @@ const Personel = () => {
             setLoading(false);
         })
         .catch(err => {
-            if (err.response && err.response.status === 403) setHasAccess(false);
+            console.error('Personel listesi alınamadı:', err);
             setLoading(false);
+        });
+    };
+
+    // Rolleri getir
+    const fetchRoles = () => {
+        axios.get('http://localhost:8000/api/roles/', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        })
+        .then(res => {
+            let data = Array.isArray(res.data) ? res.data : (res.data?.results || []);
+            setRoles(data);
+        })
+        .catch(err => {
+            console.error('Roller alınamadı:', err);
         });
     };
 
     useEffect(() => {
         if (!token) { navigate('/login'); return; }
+        fetchUserPermissions();
         fetchEmployees();
+        fetchRoles();
     }, [token]);
+
+    // İzin kontrolü
+    const hasPermission = (permission) => {
+        return userPermissions.includes(permission);
+    };
 
     const handleFormSubmit = (e) => {
         e.preventDefault();
         setFormError('');
+
+        if (!hasPermission('personel_ekle')) {
+            setFormError('Personel ekleme izniniz yok.');
+            return;
+        }
 
         if (!formData.position) {
             setFormError('Lütfen personelin şirket içindeki pozisyonunu/bölümünü seçin.');
             return;
         }
 
-        // 🚨 BURAYI GÜNCELLEYİN: Noktaları kesin olarak temizle ve tam sayıya çevir
         const rawSalary = parseInt(displaySalary.toString().replace(/\./g, ''), 10) || 0;
         const rawPhone = displayPhone ? displayPhone.replace(/[^\d]/g, '') : '';
 
@@ -93,7 +132,8 @@ const Personel = () => {
             email: formData.email,
             position: formData.position,
             phone: rawPhone || null,
-            salary: rawSalary // Artık gönderilen değer 50000 şeklinde, noktasız
+            salary: rawSalary,
+            role_id: formData.role_id || null
         };
 
         const headers = { 'Authorization': `Bearer ${token}` };
@@ -106,7 +146,6 @@ const Personel = () => {
             axios.post('http://localhost:8000/api/personel/', payload, { headers })
                 .then(() => { fetchEmployees(); resetForm(); })
                 .catch(err => {
-                    // Hatanın ne olduğunu görmek için konsola yazdır
                     console.log("Backend Hata Detayı:", err.response?.data);
                     setFormError(err.response?.data?.email ? 'Bu e-posta adresiyle kayıtlı bir kullanıcı zaten var!' : 'Ekleme hatası: Bilgileri kontrol edin.');
                 });
@@ -119,7 +158,8 @@ const Personel = () => {
             first_name: emp.first_name,
             last_name: emp.last_name,
             email: emp.email,
-            position: emp.position || ''
+            position: emp.position || '',
+            role_id: emp.role_info?.id || ''
         });
         setDisplaySalary(emp.salary ? formatSalaryInput(emp.salary.toString()) : '');
         setDisplayPhone(emp.phone ? formatPhoneInput(emp.phone.toString()) : '');
@@ -127,7 +167,7 @@ const Personel = () => {
     };
 
     const resetForm = () => {
-        setFormData({ first_name: '', last_name: '', email: '', position: '' });
+        setFormData({ first_name: '', last_name: '', email: '', position: '', role_id: '' });
         setDisplaySalary('');
         setDisplayPhone('');
         setEditingId(null);
@@ -136,6 +176,11 @@ const Personel = () => {
     };
 
     const handleDelete = (id) => {
+        if (!hasPermission('personel_sil')) {
+            alert('Personel silme izniniz yok.');
+            return;
+        }
+        
         if (window.confirm("Bu personeli silmek istediğinize emin misiniz?")) {
             axios.delete(`http://localhost:8000/api/personel/${id}/`, {
                 headers: { 'Authorization': `Bearer ${token}` }
@@ -143,6 +188,34 @@ const Personel = () => {
             .then(() => setEmployees(employees.filter(emp => emp.id !== id)))
             .catch(() => alert("Silme başarısız."));
         }
+    };
+
+    // 👤 Rol atama
+    const handleOpenRoleModal = (emp) => {
+        setSelectedEmployee(emp);
+        setSelectedRoleId(emp.role_info?.id || '');
+        setShowRoleModal(true);
+    };
+
+    const handleAssignRole = () => {
+        if (!selectedEmployee || !selectedRoleId) {
+            alert('Lütfen bir rol seçin.');
+            return;
+        }
+
+        axios.post(
+            `http://localhost:8000/api/personel/${selectedEmployee.id}/assign-role/`,
+            { role_id: selectedRoleId },
+            { headers: { 'Authorization': `Bearer ${token}` } }
+        )
+        .then(res => {
+            alert('Rol başarıyla atanmıştır.');
+            fetchEmployees();
+            setShowRoleModal(false);
+        })
+        .catch(err => {
+            alert('Rol ataması başarısız: ' + (err.response?.data?.error || err.message));
+        });
     };
 
     if (loading) return <div style={styles.centerText}>🔄 Personel listesi yükleniyor...</div>;
@@ -154,11 +227,15 @@ const Personel = () => {
                     <button onClick={() => navigate('/dashboard')} style={styles.miniBackButton}>← Panele Dön</button>
                     <h1 style={styles.title}>👥 Personel Yönetimi</h1>
                 </div>
-                <button onClick={() => { if(showForm) resetForm(); else setShowForm(true); }} style={showForm ? styles.cancelBtn : styles.addBtn}>
-                    {showForm ? '❌ Formu Kapat' : '➕ Yeni Personel Ekle'}
-                </button>
+                {hasPermission('personel_ekle') && (
+                    <button onClick={() => { if(showForm) resetForm(); else setShowForm(true); }} style={showForm ? styles.cancelBtn : styles.addBtn}>
+                        {showForm ? '❌ Formu Kapat' : '➕ Yeni Personel Ekle'}
+                    </button>
+                )}
             </div>
-            {showForm && (
+
+            {/* 📝 Personel Ekleme Formu */}
+            {showForm && hasPermission('personel_ekle') && (
                 <form onSubmit={handleFormSubmit} style={styles.formCard}>
                     <h3>{editingId ? '📝 Personel Düzenle' : '✨ Yeni Personel Tanımla'}</h3>
                     {formError && <div style={styles.errorAlert}>{formError}</div>}
@@ -178,6 +255,16 @@ const Personel = () => {
                                 <option key={dept.id} value={dept.id}>{dept.label}</option>
                             ))}
                         </select>
+                        <select 
+                            value={formData.role_id} 
+                            onChange={e => setFormData({...formData, role_id: e.target.value})} 
+                            style={styles.input}
+                        >
+                            <option value="">-- Rol Seçin (İsteğe Bağlı) --</option>
+                            {roles.map(role => (
+                                <option key={role.id} value={role.id}>{role.name}</option>
+                            ))}
+                        </select>
                         <input 
                             type="text" 
                             placeholder="Maaş (Örn: 50.000)" 
@@ -195,48 +282,89 @@ const Personel = () => {
                     </div>
                 </form>
             )}
-            <div style={styles.tableResponsive}>
-                <table style={styles.table}>
-                    <thead>
-                        <tr>
-                            <th style={styles.th}>Ad Soyad</th>
-                            <th style={styles.th}>E-Posta</th>
-                            <th style={styles.th}>Telefon</th>
-                            <th style={styles.th}>Pozisyon / Bölüm</th>
-                            <th style={styles.th}>Maaş</th>
-                            <th style={styles.th}>İşlemler</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {employees.length === 0 ? (
-                            <tr><td colSpan="6" style={styles.noData}>Şirketinize ait personel bulunamadı.</td></tr>
-                        ) : (
-                            employees.map((emp) => (
-                                <tr key={emp.id} style={styles.tr}>
-                                    <td style={styles.td}><strong>{emp.first_name} {emp.last_name}</strong></td>
-                                    <td style={styles.td}>{emp.email}</td>
-                                    <td style={styles.td}>{emp.phone ? formatPhoneInput(emp.phone.toString()) : '—'}</td>
-                                    <td style={styles.td}>
-                                        <span style={styles.badge}>
-                                            {sirketDepartmanlari.find(d => d.id === emp.position)?.label || emp.position || 'Belirtilmemiş'}
-                                        </span>
-                                    </td>
-                                    <td style={styles.td}>
-                                        {emp.salary ? `${formatSalaryInput(emp.salary.toString())} ₺` : '0 ₺'}
-                                    </td>
-                                    <td style={styles.td}>
-                                        <button onClick={() => handleEditClick(emp)} style={styles.editBtn}>✏️ Düzenle</button>
-                                        <button onClick={() => handleDelete(emp.id)} style={styles.deleteBtn}>🗑️ Sil</button>
-                                    </td>
-                                </tr>
-                            ))
-                        )}
-                    </tbody>
-                </table>
-            </div>
+
+            {/* 👥 Personel Tablosu */}
+            {hasPermission('personel_goruntule') ? (
+                <div style={styles.tableResponsive}>
+                    <table style={styles.table}>
+                        <thead>
+                            <tr>
+                                <th style={styles.th}>Ad Soyad</th>
+                                <th style={styles.th}>E-Posta</th>
+                                <th style={styles.th}>Telefon</th>
+                                <th style={styles.th}>Pozisyon</th>
+                                <th style={styles.th}>Rol</th>
+                                <th style={styles.th}>Maaş</th>
+                                <th style={styles.th}>İşlemler</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {employees.length === 0 ? (
+                                <tr><td colSpan="7" style={styles.noData}>Şirketinize ait personel bulunamadı.</td></tr>
+                            ) : (
+                                employees.map((emp) => (
+                                    <tr key={emp.id} style={styles.tr}>
+                                        <td style={styles.td}><strong>{emp.first_name} {emp.last_name}</strong></td>
+                                        <td style={styles.td}>{emp.email}</td>
+                                        <td style={styles.td}>{emp.phone ? formatPhoneInput(emp.phone.toString()) : '—'}</td>
+                                        <td style={styles.td}>
+                                            <span style={styles.badge}>
+                                                {sirketDepartmanlari.find(d => d.id === emp.position)?.label || emp.position || 'Belirtilmemiş'}
+                                            </span>
+                                        </td>
+                                        <td style={styles.td}>
+                                            <span style={{...styles.badge, backgroundColor: emp.role_info ? '#c6f6d5' : '#fed7d7'}}>
+                                                {emp.role_info?.name || 'Rol Atanmamış'}
+                                            </span>
+                                        </td>
+                                        <td style={styles.td}>
+                                            {emp.salary ? `${formatSalaryInput(emp.salary.toString())} ₺` : '0 ₺'}
+                                        </td>
+                                        <td style={styles.td}>
+                                            <button onClick={() => handleOpenRoleModal(emp)} style={styles.roleBtn} title="Rol Ata">👤 Rol Ata</button>
+                                            {hasPermission('personel_ekle') && (
+                                                <button onClick={() => handleEditClick(emp)} style={styles.editBtn}>✏️ Düzenle</button>
+                                            )}
+                                            {hasPermission('personel_sil') && (
+                                                <button onClick={() => handleDelete(emp.id)} style={styles.deleteBtn}>🗑️ Sil</button>
+                                            )}
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            ) : (
+                <div style={styles.noPermission}>🔒 Personel listesini görüntüleme izniniz yok.</div>
+            )}
+
+            {/* 👤 Rol Atama Modalı */}
+            {showRoleModal && (
+                <div style={styles.modal}>
+                    <div style={styles.modalContent}>
+                        <h3>👤 {selectedEmployee?.first_name} {selectedEmployee?.last_name} için Rol Ata</h3>
+                        <select 
+                            value={selectedRoleId} 
+                            onChange={e => setSelectedRoleId(e.target.value)} 
+                            style={styles.input}
+                        >
+                            <option value="">-- Bir Rol Seçin --</option>
+                            {roles.map(role => (
+                                <option key={role.id} value={role.id}>{role.name}</option>
+                            ))}
+                        </select>
+                        <div style={styles.modalActions}>
+                            <button onClick={handleAssignRole} style={styles.saveBtn}>✓ Onayla</button>
+                            <button onClick={() => setShowRoleModal(false)} style={styles.cancelBtn}>✕ İptal</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
+
 const styles = {
     container: { padding: '40px', maxWidth: '1200px', margin: '0 auto', fontFamily: 'Arial, sans-serif' },
     header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' },
@@ -258,8 +386,14 @@ const styles = {
     td: { padding: '16px', color: '#2d3748', verticalAlign: 'middle', fontSize: '15px' },
     badge: { padding: '4px 8px', backgroundColor: '#e2e8f0', borderRadius: '4px', fontSize: '13px', color: '#4a5568', fontWeight: '500' },
     noData: { textAlign: 'center', padding: '30px', color: '#a0aec0' },
-    editBtn: { padding: '6px 12px', backgroundColor: '#feebc8', color: '#c05621', border: 'none', borderRadius: '4px', cursor: 'pointer', marginRight: '5px', fontWeight: 'bold' },
-    deleteBtn: { padding: '6px 12px', backgroundColor: '#fed7d7', color: '#9b2c2c', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' },
-    centerText: { display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', fontSize: '18px', fontFamily: 'Arial' }
+    noPermission: { padding: '30px', backgroundColor: '#fed7d7', color: '#9b2c2c', borderRadius: '6px', textAlign: 'center', fontSize: '16px', fontWeight: 'bold' },
+    roleBtn: { padding: '6px 12px', backgroundColor: '#bee3f8', color: '#2c5282', border: 'none', borderRadius: '4px', cursor: 'pointer', marginRight: '5px', fontWeight: 'bold', fontSize: '13px' },
+    editBtn: { padding: '6px 12px', backgroundColor: '#feebc8', color: '#c05621', border: 'none', borderRadius: '4px', cursor: 'pointer', marginRight: '5px', fontWeight: 'bold', fontSize: '13px' },
+    deleteBtn: { padding: '6px 12px', backgroundColor: '#fed7d7', color: '#9b2c2c', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' },
+    centerText: { display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', fontSize: '18px', fontFamily: 'Arial' },
+    modal: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
+    modalContent: { backgroundColor: '#fff', padding: '30px', borderRadius: '12px', boxShadow: '0 10px 40px rgba(0,0,0,0.3)', minWidth: '400px' },
+    modalActions: { display: 'flex', gap: '10px', marginTop: '20px' }
 };
+
 export default Personel;
